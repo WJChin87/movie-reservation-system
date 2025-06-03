@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Login - Movie Reservation System</title>
+    <link rel="stylesheet" href="/css/style.css" />
+  </head>
+  <body>
+    <div class="container">
+      <h2>Movie Reservation System</h2>
+      <nav class="nav-links">
+        <a href="/">Home</a>
+        <a href="/register.html">Register</a>
+      </nav>
+
+      <div class="form-container">
+        <h3>Login</h3>
+        <div class="form-group">
+          <label for="loginEmail">Email:</label>
+          <input type="email" id="loginEmail" required />
+        </div>
+        <div class="form-group">
+          <label for="loginPassword">Password:</label>
+          <input type="password" id="loginPassword" required />
+        </div>
+        <button onclick="login()">Login</button>
+        <p>Don't have an account? <a href="/register.html">Register here</a></p>
+      </div>
+
+      <div id="message"></div>
+    </div>
+
+    <script>
+      const API_URL = "http://localhost:3000/api";
+
+      async function login() {
+        const email = document.getElementById("loginEmail").value;
+        const password = document.getElementById("loginPassword").value;
+
+        try {
+          const response = await fetch(`${API_URL}/auth/login`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ email, password }),
+          });
+
+          const data = await response.json();
+
+          if (response.ok) {
+            localStorage.setItem("token", data.token);
+            localStorage.setItem("user", JSON.stringify(data.user));
+            showMessage("Login successful! Redirecting...", "success");
+            setTimeout(() => {
+              window.location.href = "/movies.html";
+            }, 1500);
+          } else {
+            showMessage(data.message || "Login failed", "error");
+          }
+        } catch (error) {
+          showMessage("Error connecting to server", "error");
+        }
+      }
+
+      function showMessage(message, type) {
+        const messageDiv = document.getElementById("message");
+        messageDiv.textContent = message;
+        messageDiv.className = type;
+      }
+    </script>
+  </body>
+</html>
