@@ -112,29 +112,42 @@ router.post("/", [auth], async (req, res) => {
 });
 
 // Cancel reservation
-router.delete("/:id", [auth], async (req, res) => {
+router.post("/:id/cancel", [auth], async (req, res) => {
   try {
-    const reservation = await Reservation.cancel(req.params.id, req.user.id);
-    res.json({
-      message: "Reservation cancelled successfully",
-      reservation,
-    });
-  } catch (err) {
-    console.error("Error cancelling reservation:", err);
+    const reservation = await Reservation.findById(req.params.id);
 
-    if (err.message === "Reservation not found") {
-      return res.status(404).json({ message: err.message });
-    }
-
-    if (
-      err.message.includes("already cancelled") ||
-      err.message.includes("1 hour before")
-    ) {
-      return res.status(400).json({
-        message: err.message,
+    if (!reservation) {
+      return res.status(404).json({
+        message: "Reservation not found",
       });
     }
 
+    if (reservation.user_id !== req.user.id) {
+      return res.status(403).json({
+        message: "Not authorized to cancel this reservation",
+      });
+    }
+
+    if (reservation.status === "cancelled") {
+      return res.status(400).json({
+        message: "Reservation is already cancelled",
+      });
+    }
+
+    const showtime = new Date(reservation.start_time);
+    if (showtime <= new Date()) {
+      return res.status(400).json({
+        message: "Cannot cancel past reservations",
+      });
+    }
+
+    const cancelledReservation = await Reservation.cancel(req.params.id);
+    res.json({
+      message: "Reservation cancelled successfully",
+      reservation: cancelledReservation,
+    });
+  } catch (err) {
+    console.error("Error cancelling reservation:", err);
     res.status(500).json({
       message: "Error cancelling reservation",
       error: err.message,

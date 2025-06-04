@@ -284,12 +284,8 @@
         const seatsGrid = document.getElementById("seatsGrid");
         seatsGrid.innerHTML = ""; // Clear existing content
 
-        const totalSeats = 150;
-        const seatsPerRow = 15;
-        const totalRows = Math.ceil(totalSeats / seatsPerRow);
-
         // Create rows
-        for (let row = 1; row <= totalRows; row++) {
+        for (let row = 1; row <= 10; row++) {
           const rowDiv = document.createElement("div");
           rowDiv.className = "row";
 
@@ -300,7 +296,7 @@
           rowDiv.appendChild(rowLabel);
 
           // Add seats
-          for (let seatNum = 1; seatNum <= seatsPerRow; seatNum++) {
+          for (let seatNum = 1; seatNum <= 15; seatNum++) {
             // Add aisle spacing based on theater type
             const config = getTheaterConfig(theaterType);
             if (config.aisles.includes(seatNum)) {
@@ -310,28 +306,28 @@
             }
 
             const seatDiv = document.createElement("div");
-            const seatId = (row - 1) * seatsPerRow + seatNum;
 
-            // Check if this seat exists in seatsData and is occupied
+            // Find the matching seat in seatsData
             const existingSeat = seatsData.find(
               (seat) =>
                 seat.row_number === String.fromCharCode(64 + row) &&
                 seat.seat_number === seatNum
             );
 
-            seatDiv.className = `seat${
-              existingSeat?.is_occupied ? " occupied" : ""
-            }`;
-            seatDiv.textContent = seatNum;
-            seatDiv.dataset.seatId = existingSeat?.id || seatId;
+            if (existingSeat) {
+              seatDiv.className = `seat${
+                existingSeat.is_occupied ? " occupied" : ""
+              }`;
+              seatDiv.textContent = seatNum;
+              seatDiv.dataset.seatId = existingSeat.id;
 
-            if (!existingSeat?.is_occupied) {
-              seatDiv.onclick = () =>
-                toggleSeat(seatDiv, {
-                  id: existingSeat?.id || seatId,
-                  row_number: String.fromCharCode(64 + row),
-                  seat_number: seatNum,
-                });
+              if (!existingSeat.is_occupied) {
+                seatDiv.onclick = () => toggleSeat(seatDiv, existingSeat);
+              }
+            } else {
+              // If the seat doesn't exist in the database, mark it as occupied
+              seatDiv.className = "seat occupied";
+              seatDiv.textContent = seatNum;
             }
 
             rowDiv.appendChild(seatDiv);
@@ -359,11 +355,15 @@
       }
 
       function toggleSeat(seatDiv, seat) {
-        const seatId = seat.id;
+        const seatId = parseInt(seat.id);
         if (selectedSeats.has(seatId)) {
           selectedSeats.delete(seatId);
           seatDiv.classList.remove("selected");
         } else {
+          if (selectedSeats.size >= 5) {
+            showMessage("Maximum 5 seats can be selected at once", "error");
+            return;
+          }
           selectedSeats.add(seatId);
           seatDiv.classList.add("selected");
         }
@@ -397,7 +397,7 @@
               "Content-Type": "application/json",
             },
             body: JSON.stringify({
-              showtime_id: showtimeId,
+              showtime_id: parseInt(showtimeId),
               seat_ids: selectedSeatsArray,
             }),
           });
@@ -405,7 +405,13 @@
           const data = await response.json();
 
           if (response.ok) {
-            showMessage("Reservation successful!", "success");
+            const reservations = data.reservation.reservations;
+            const totalPrice = data.reservation.totalPrice;
+
+            showMessage(
+              `Reservation successful! Total price: $${totalPrice.toFixed(2)}`,
+              "success"
+            );
             setTimeout(() => {
               window.location.href = "/reservations.html";
             }, 2000);

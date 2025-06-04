@@ -418,6 +418,106 @@
           messageDiv.className = "";
         }, 5000);
       }
+
+      function createReservationCard(reservation) {
+        const showtime = new Date(reservation.start_time);
+        const isUpcoming = showtime > new Date();
+        const seats = [
+          {
+            row_number: reservation.row_number,
+            seat_number: reservation.seat_number,
+          },
+        ];
+        const totalPrice = reservation.price;
+
+        return `
+          <div class="reservation-card">
+            <div class="movie-poster">
+              <img src="${
+                reservation.poster_url || "/images/default-poster.jpg"
+              }" alt="${reservation.movie_title}">
+            </div>
+            <div class="reservation-content">
+              <div class="reservation-header">
+                <h3>${reservation.movie_title}</h3>
+                <span class="reservation-status status-${reservation.status}">${
+          reservation.status
+        }</span>
+              </div>
+              <div class="reservation-details">
+                <div class="detail-item">
+                  <div class="detail-label">Date & Time</div>
+                  <div>${showtime.toLocaleString()}</div>
+                </div>
+                <div class="detail-item">
+                  <div class="detail-label">Theater</div>
+                  <div>${reservation.theater_name} (${
+          reservation.theater_type
+        })</div>
+                </div>
+                <div class="detail-item">
+                  <div class="detail-label">Seats</div>
+                  <div class="seats-list">
+                    ${seats
+                      .map(
+                        (seat) =>
+                          `<span class="seat-tag">Row ${seat.row_number} - Seat ${seat.seat_number}</span>`
+                      )
+                      .join("")}
+                  </div>
+                </div>
+                <div class="detail-item">
+                  <div class="detail-label">Price</div>
+                  <div>$${totalPrice.toFixed(2)}</div>
+                </div>
+              </div>
+              ${
+                isUpcoming && reservation.status === "active"
+                  ? `
+                <div class="action-buttons">
+                  <button onclick="cancelReservation(${reservation.id})" class="cancel-btn">Cancel Reservation</button>
+                </div>
+              `
+                  : ""
+              }
+            </div>
+          </div>
+        `;
+      }
+
+      async function cancelReservation(id) {
+        if (!confirm("Are you sure you want to cancel this reservation?")) {
+          return;
+        }
+
+        try {
+          const response = await fetch(`${API_URL}/reservations/${id}/cancel`, {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${localStorage.getItem("token")}`,
+              "Content-Type": "application/json",
+            },
+          });
+
+          const data = await response.json();
+
+          if (response.ok) {
+            showMessage("Reservation cancelled successfully", "success");
+            // Reload reservations after a short delay
+            setTimeout(() => {
+              loadReservations();
+            }, 1000);
+          } else {
+            showMessage(
+              data.message || "Error cancelling reservation",
+              "error"
+            );
+          }
+        } catch (error) {
+          console.error("Error:", error);
+          showMessage("Error connecting to server", "error");
+        }
+      }
     </script>
   </body>
 </html>
