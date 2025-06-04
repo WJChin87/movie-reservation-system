@@ -67,6 +67,29 @@
       .showtimes-btn:hover {
         background: #0056b3;
       }
+      .pagination {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        margin-top: 20px;
+        gap: 10px;
+      }
+      .pagination button {
+        padding: 8px 12px;
+        border: 1px solid #ddd;
+        background: white;
+        cursor: pointer;
+        border-radius: 4px;
+      }
+      .pagination button:disabled {
+        background: #f5f5f5;
+        cursor: not-allowed;
+      }
+      .pagination button.active {
+        background: #007bff;
+        color: white;
+        border-color: #007bff;
+      }
     </style>
   </head>
   <body>
@@ -79,12 +102,14 @@
       </nav>
 
       <div id="movieGrid" class="movie-grid"></div>
+      <div id="pagination" class="pagination"></div>
       <div id="message"></div>
     </div>
 
     <script>
       const API_URL = "http://localhost:3000/api";
       const authToken = localStorage.getItem("token");
+      let currentPage = 1;
 
       // Check authentication
       if (!authToken) {
@@ -92,15 +117,16 @@
       }
 
       // Load movies when page loads
-      document.addEventListener("DOMContentLoaded", loadMovies);
+      document.addEventListener("DOMContentLoaded", () => loadMovies(1));
 
-      async function loadMovies() {
+      async function loadMovies(page = 1) {
         try {
-          const response = await fetch(`${API_URL}/movies`, {
+          const response = await fetch(`${API_URL}/movies?page=${page}`, {
             headers: { Authorization: `Bearer ${authToken}` },
           });
 
-          const movies = await response.json();
+          const data = await response.json();
+          const { movies, pagination } = data;
 
           const movieGrid = document.getElementById("movieGrid");
           movieGrid.innerHTML = movies
@@ -118,12 +144,11 @@
                       <p><strong>Duration:</strong> ${
                         movie.duration
                       } minutes</p>
-                      <p><strong>Genre:</strong> ${
-                        Array.isArray(movie.genres)
-                          ? movie.genres.join(", ")
-                          : movie.genres
-                      }</p>
+                      <p><strong>Genre:</strong> ${movie.genres
+                        .map((g) => g.name)
+                        .join(", ")}</p>
                       <p><strong>Rating:</strong> ${movie.rating}</p>
+                      <p>${movie.description}</p>
                     </div>
                     <button class="showtimes-btn" onclick="viewShowtimes(${
                       movie.id
@@ -133,6 +158,40 @@
               `
             )
             .join("");
+
+          // Update pagination
+          const paginationDiv = document.getElementById("pagination");
+          if (pagination.pages > 1) {
+            let paginationHTML = `
+              <button onclick="loadMovies(1)" ${
+                page === 1 ? "disabled" : ""
+              }>First</button>
+              <button onclick="loadMovies(${page - 1})" ${
+              page === 1 ? "disabled" : ""
+            }>Previous</button>
+            `;
+
+            for (let i = 1; i <= pagination.pages; i++) {
+              paginationHTML += `
+                <button onclick="loadMovies(${i})" class="${
+                i === page ? "active" : ""
+              }">${i}</button>
+              `;
+            }
+
+            paginationHTML += `
+              <button onclick="loadMovies(${page + 1})" ${
+              page === pagination.pages ? "disabled" : ""
+            }>Next</button>
+              <button onclick="loadMovies(${pagination.pages})" ${
+              page === pagination.pages ? "disabled" : ""
+            }>Last</button>
+            `;
+
+            paginationDiv.innerHTML = paginationHTML;
+          } else {
+            paginationDiv.innerHTML = "";
+          }
         } catch (error) {
           console.error("Error loading movies:", error);
           document.getElementById("message").innerHTML =

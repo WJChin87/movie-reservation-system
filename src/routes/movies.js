@@ -7,21 +7,31 @@ const Movie = require("../models/Movie");
 router.get("/", async (req, res) => {
   try {
     const { page = 1, limit = 10, genre } = req.query;
-    const offset = (page - 1) * limit;
 
-    const movies = await Movie.findAll({
-      limit: parseInt(limit),
-      offset: parseInt(offset),
+    // Validate pagination parameters
+    const pageNum = parseInt(page);
+    const limitNum = parseInt(limit);
+
+    if (isNaN(pageNum) || pageNum < 1) {
+      return res.status(400).json({
+        message: "Invalid page number. Must be a positive integer.",
+      });
+    }
+
+    if (isNaN(limitNum) || limitNum < 1 || limitNum > 50) {
+      return res.status(400).json({
+        message: "Invalid limit. Must be a positive integer between 1 and 50.",
+      });
+    }
+
+    const offset = (pageNum - 1) * limitNum;
+    const result = await Movie.findAll({
+      limit: limitNum,
+      offset,
       genre: genre,
     });
 
-    res.json({
-      movies,
-      pagination: {
-        page: parseInt(page),
-        limit: parseInt(limit),
-      },
-    });
+    res.json(result);
   } catch (err) {
     console.error("Error fetching movies:", err);
     res.status(500).json({
@@ -34,15 +44,23 @@ router.get("/", async (req, res) => {
 // Get movie by ID
 router.get("/:id", async (req, res) => {
   try {
-    const movie = await Movie.findById(req.params.id);
+    const movieId = parseInt(req.params.id);
 
-    if (!movie) {
-      return res.status(404).json({ message: "Movie not found" });
+    if (isNaN(movieId) || movieId < 1) {
+      return res.status(400).json({
+        message: "Invalid movie ID. Must be a positive integer.",
+      });
     }
 
+    const movie = await Movie.findById(movieId);
     res.json(movie);
   } catch (err) {
     console.error("Error fetching movie:", err);
+
+    if (err.message === "Movie not found") {
+      return res.status(404).json({ message: err.message });
+    }
+
     res.status(500).json({
       message: "Error fetching movie",
       error: err.message,
@@ -62,6 +80,13 @@ router.post("/", [auth, admin], async (req, res) => {
       genres,
     } = req.body;
 
+    // Additional validation
+    if (!Array.isArray(genres)) {
+      return res.status(400).json({
+        message: "Genres must be an array of genre IDs",
+      });
+    }
+
     const movie = await Movie.create({
       title,
       description,
@@ -74,7 +99,11 @@ router.post("/", [auth, admin], async (req, res) => {
   } catch (err) {
     console.error("Error creating movie:", err);
 
-    if (err.message.includes("required") || err.message.includes("valid")) {
+    if (
+      err.message.includes("required") ||
+      err.message.includes("valid") ||
+      err.message.includes("invalid")
+    ) {
       return res.status(400).json({
         message: "Validation error",
         error: err.message,
@@ -91,6 +120,14 @@ router.post("/", [auth, admin], async (req, res) => {
 // Update movie (Admin only)
 router.put("/:id", [auth, admin], async (req, res) => {
   try {
+    const movieId = parseInt(req.params.id);
+
+    if (isNaN(movieId) || movieId < 1) {
+      return res.status(400).json({
+        message: "Invalid movie ID. Must be a positive integer.",
+      });
+    }
+
     const {
       title,
       description,
@@ -100,7 +137,14 @@ router.put("/:id", [auth, admin], async (req, res) => {
       genres,
     } = req.body;
 
-    const movie = await Movie.update(req.params.id, {
+    // Additional validation
+    if (genres !== undefined && !Array.isArray(genres)) {
+      return res.status(400).json({
+        message: "Genres must be an array of genre IDs",
+      });
+    }
+
+    const movie = await Movie.update(movieId, {
       title,
       description,
       duration: parseInt(duration),
@@ -116,7 +160,11 @@ router.put("/:id", [auth, admin], async (req, res) => {
       return res.status(404).json({ message: err.message });
     }
 
-    if (err.message.includes("required") || err.message.includes("valid")) {
+    if (
+      err.message.includes("required") ||
+      err.message.includes("valid") ||
+      err.message.includes("invalid")
+    ) {
       return res.status(400).json({
         message: "Validation error",
         error: err.message,
@@ -133,13 +181,25 @@ router.put("/:id", [auth, admin], async (req, res) => {
 // Delete movie (Admin only)
 router.delete("/:id", [auth, admin], async (req, res) => {
   try {
-    await Movie.delete(req.params.id);
-    res.json({ message: "Movie deleted successfully" });
+    const movieId = parseInt(req.params.id);
+
+    if (isNaN(movieId) || movieId < 1) {
+      return res.status(400).json({
+        message: "Invalid movie ID. Must be a positive integer.",
+      });
+    }
+
+    const result = await Movie.delete(movieId);
+    res.json(result);
   } catch (err) {
     console.error("Error deleting movie:", err);
 
     if (err.message === "Movie not found") {
       return res.status(404).json({ message: err.message });
+    }
+
+    if (err.message.includes("existing showtimes")) {
+      return res.status(400).json({ message: err.message });
     }
 
     res.status(500).json({
@@ -152,22 +212,33 @@ router.delete("/:id", [auth, admin], async (req, res) => {
 // Add genres to a movie (Admin only)
 router.post("/:id/genres", [auth, admin], async (req, res) => {
   try {
+    const movieId = parseInt(req.params.id);
+
+    if (isNaN(movieId) || movieId < 1) {
+      return res.status(400).json({
+        message: "Invalid movie ID. Must be a positive integer.",
+      });
+    }
+
     const { genres } = req.body;
 
     if (!Array.isArray(genres) || genres.length === 0) {
       return res.status(400).json({
-        message: "Validation error",
-        error: "genres must be a non-empty array of genre IDs",
+        message: "genres must be a non-empty array of genre IDs",
       });
     }
 
-    const movie = await Movie.addGenres(req.params.id, genres);
+    const movie = await Movie.addGenres(movieId, genres);
     res.json(movie);
   } catch (err) {
     console.error("Error adding genres:", err);
 
     if (err.message === "Movie not found") {
       return res.status(404).json({ message: err.message });
+    }
+
+    if (err.message.includes("invalid genre")) {
+      return res.status(400).json({ message: err.message });
     }
 
     res.status(500).json({
@@ -180,16 +251,23 @@ router.post("/:id/genres", [auth, admin], async (req, res) => {
 // Remove genres from a movie (Admin only)
 router.delete("/:id/genres", [auth, admin], async (req, res) => {
   try {
+    const movieId = parseInt(req.params.id);
+
+    if (isNaN(movieId) || movieId < 1) {
+      return res.status(400).json({
+        message: "Invalid movie ID. Must be a positive integer.",
+      });
+    }
+
     const { genres } = req.body;
 
     if (!Array.isArray(genres) || genres.length === 0) {
       return res.status(400).json({
-        message: "Validation error",
-        error: "genres must be a non-empty array of genre IDs",
+        message: "genres must be a non-empty array of genre IDs",
       });
     }
 
-    const movie = await Movie.removeGenres(req.params.id, genres);
+    const movie = await Movie.removeGenres(movieId, genres);
     res.json(movie);
   } catch (err) {
     console.error("Error removing genres:", err);

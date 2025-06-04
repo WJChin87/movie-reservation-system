@@ -33,6 +33,16 @@ class Movie {
 
       // Add genres if provided
       if (genres.length > 0) {
+        // Verify all genres exist
+        const existingGenres = await client.query(
+          "SELECT id FROM genres WHERE id = ANY($1)",
+          [genres]
+        );
+
+        if (existingGenres.rows.length !== genres.length) {
+          throw new Error("One or more invalid genre IDs provided");
+        }
+
         const genreValues = genres
           .map((genreId, index) => `($${index * 2 + 1}, $${index * 2 + 2})`)
           .join(", ");
@@ -53,38 +63,70 @@ class Movie {
   }
 
   static async findAll({ limit = 50, offset = 0, genre = null } = {}) {
-    let query = `
-      SELECT 
-        m.*,
-        COALESCE(
-          json_agg(
-            json_build_object(
-              'id', g.id,
-              'name', g.name
-            )
-          ) FILTER (WHERE g.id IS NOT NULL),
-          '[]'
-        ) as genres
-      FROM movies m
-      LEFT JOIN movie_genres mg ON m.id = mg.movie_id
-      LEFT JOIN genres g ON mg.genre_id = g.id
-    `;
+    try {
+      // Build the query based on whether we're filtering by genre
+      const baseQuery = `
+        WITH movie_data AS (
+          SELECT 
+            m.*,
+            COUNT(*) OVER() as total_count
+          FROM movies m
+          ${
+            genre
+              ? `
+            JOIN movie_genres mg ON m.id = mg.movie_id
+            JOIN genres g ON mg.genre_id = g.id
+            WHERE LOWER(g.name) = LOWER($1)
+          `
+              : ""
+          }
+          GROUP BY m.id
+          ORDER BY m.created_at DESC
+          LIMIT $${genre ? "2" : "1"} 
+          OFFSET $${genre ? "3" : "2"}
+        )
+        SELECT 
+          m.*,
+          m.total_count::integer,
+          COALESCE(
+            json_agg(
+              json_build_object(
+                'id', g.id,
+                'name', g.name
+              )
+            ) FILTER (WHERE g.id IS NOT NULL),
+            '[]'
+          ) as genres
+        FROM movie_data m
+        LEFT JOIN movie_genres mg ON m.id = mg.movie_id
+        LEFT JOIN genres g ON mg.genre_id = g.id
+        GROUP BY m.id, m.title, m.description, m.duration, m.rating, 
+                 m.poster_url, m.created_at, m.total_count
+        ORDER BY m.created_at DESC
+      `;
 
-    const params = [];
-    if (genre) {
-      query += " WHERE g.name = $1";
-      params.push(genre);
+      const params = genre ? [genre, limit, offset] : [limit, offset];
+      const result = await db.query(baseQuery, params);
+
+      const totalCount = result.rows[0]?.total_count || 0;
+      const totalPages = Math.ceil(totalCount / limit);
+
+      return {
+        movies: result.rows.map((row) => {
+          const { total_count, ...movie } = row;
+          return movie;
+        }),
+        pagination: {
+          total: totalCount,
+          pages: totalPages,
+          current_page: Math.floor(offset / limit) + 1,
+          per_page: limit,
+        },
+      };
+    } catch (error) {
+      console.error("Error in findAll:", error);
+      throw new Error("Error fetching movies: " + error.message);
     }
-
-    query += `
-      GROUP BY m.id
-      ORDER BY m.created_at DESC
-      LIMIT $${params.length + 1} OFFSET $${params.length + 2}
-    `;
-    params.push(limit, offset);
-
-    const result = await db.query(query, params);
-    return result.rows;
   }
 
   static async findById(id, client = db) {
@@ -92,27 +134,38 @@ class Movie {
       throw new Error("Movie ID is required");
     }
 
-    const result = await client.query(
-      `SELECT 
-        m.*,
-        COALESCE(
-          json_agg(
-            json_build_object(
-              'id', g.id,
-              'name', g.name
-            )
-          ) FILTER (WHERE g.id IS NOT NULL),
-          '[]'
-        ) as genres
-      FROM movies m
-      LEFT JOIN movie_genres mg ON m.id = mg.movie_id
-      LEFT JOIN genres g ON mg.genre_id = g.id
-      WHERE m.id = $1
-      GROUP BY m.id`,
-      [id]
-    );
+    try {
+      const result = await client.query(
+        `SELECT 
+          m.*,
+          COALESCE(
+            json_agg(
+              json_build_object(
+                'id', g.id,
+                'name', g.name
+              )
+            ) FILTER (WHERE g.id IS NOT NULL),
+            '[]'
+          ) as genres
+        FROM movies m
+        LEFT JOIN movie_genres mg ON m.id = mg.movie_id
+        LEFT JOIN genres g ON mg.genre_id = g.id
+        WHERE m.id = $1
+        GROUP BY m.id`,
+        [id]
+      );
 
-    return result.rows[0];
+      if (result.rows.length === 0) {
+        throw new Error("Movie not found");
+      }
+
+      return result.rows[0];
+    } catch (error) {
+      console.error("Error in findById:", error);
+      throw error.message === "Movie not found"
+        ? error
+        : new Error("Error fetching movie: " + error.message);
+    }
   }
 
   static async update(id, { title, description, duration, posterUrl, genres }) {
@@ -123,6 +176,15 @@ class Movie {
     this.validateMovie({ title, description, duration });
 
     return db.transaction(async (client) => {
+      // Check if movie exists
+      const exists = await client.query("SELECT id FROM movies WHERE id = $1", [
+        id,
+      ]);
+
+      if (exists.rows.length === 0) {
+        throw new Error("Movie not found");
+      }
+
       // Update movie
       const result = await client.query(
         `UPDATE movies 
@@ -132,12 +194,20 @@ class Movie {
         [title, description, duration, posterUrl, id]
       );
 
-      if (result.rows.length === 0) {
-        throw new Error("Movie not found");
-      }
-
       // Update genres if provided
       if (genres) {
+        // Verify all genres exist
+        if (genres.length > 0) {
+          const existingGenres = await client.query(
+            "SELECT id FROM genres WHERE id = ANY($1)",
+            [genres]
+          );
+
+          if (existingGenres.rows.length !== genres.length) {
+            throw new Error("One or more invalid genre IDs provided");
+          }
+        }
+
         // Remove existing genres
         await client.query("DELETE FROM movie_genres WHERE movie_id = $1", [
           id,
@@ -171,17 +241,29 @@ class Movie {
     }
 
     return db.transaction(async (client) => {
-      // Delete movie (cascade will handle related records)
-      const result = await client.query(
-        "DELETE FROM movies WHERE id = $1 RETURNING id",
-        [id]
-      );
+      // Check if movie exists
+      const exists = await client.query("SELECT id FROM movies WHERE id = $1", [
+        id,
+      ]);
 
-      if (result.rows.length === 0) {
+      if (exists.rows.length === 0) {
         throw new Error("Movie not found");
       }
 
-      return { id: result.rows[0].id };
+      // Check if movie has any showtimes
+      const showtimes = await client.query(
+        "SELECT id FROM showtimes WHERE movie_id = $1 LIMIT 1",
+        [id]
+      );
+
+      if (showtimes.rows.length > 0) {
+        throw new Error("Cannot delete movie with existing showtimes");
+      }
+
+      // Delete movie (cascade will handle related records)
+      await client.query("DELETE FROM movies WHERE id = $1", [id]);
+
+      return { id, message: "Movie deleted successfully" };
     });
   }
 
@@ -201,7 +283,17 @@ class Movie {
         throw new Error("Movie not found");
       }
 
-      // Add genres
+      // Verify all genres exist
+      const existingGenres = await client.query(
+        "SELECT id FROM genres WHERE id = ANY($1)",
+        [genreIds]
+      );
+
+      if (existingGenres.rows.length !== genreIds.length) {
+        throw new Error("One or more invalid genre IDs provided");
+      }
+
+      // Add new genres
       const genreValues = genreIds
         .map((_, index) => `($${index * 2 + 1}, $${index * 2 + 2})`)
         .join(", ");
@@ -227,16 +319,26 @@ class Movie {
       throw new Error("Movie ID and at least one genre ID are required");
     }
 
-    const placeholders = genreIds.map((_, i) => `$${i + 2}`).join(", ");
+    return db.transaction(async (client) => {
+      // Verify movie exists
+      const movieExists = await client.query(
+        "SELECT id FROM movies WHERE id = $1",
+        [movieId]
+      );
 
-    const result = await db.query(
-      `DELETE FROM movie_genres 
-       WHERE movie_id = $1 
-       AND genre_id IN (${placeholders})`,
-      [movieId, ...genreIds]
-    );
+      if (movieExists.rows.length === 0) {
+        throw new Error("Movie not found");
+      }
 
-    return this.findById(movieId);
+      // Remove genres
+      await client.query(
+        `DELETE FROM movie_genres 
+         WHERE movie_id = $1 AND genre_id = ANY($2)`,
+        [movieId, genreIds]
+      );
+
+      return this.findById(movieId, client);
+    });
   }
 }
 
