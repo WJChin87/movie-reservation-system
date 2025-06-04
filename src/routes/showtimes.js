@@ -1,102 +1,61 @@
 const express = require("express");
 const router = express.Router();
-const pool = require("../config/database");
 const { auth, admin } = require("../middleware/auth");
+const Showtime = require("../models/Showtime");
 
-// Get all showtimes
+// Get all showtimes with filtering and pagination
 router.get("/", async (req, res) => {
   try {
-    const { movieId } = req.query;
-    let query = `
-      SELECT 
-        s.*,
-        m.title, m.duration, m.rating, m.poster_url,
-        t.name as theater_name, t.capacity, t.type as theater_type,
-        array_agg(DISTINCT g.name) as genres,
-        json_build_object(
-          'id', m.id,
-          'title', m.title,
-          'duration', m.duration,
-          'genres', array_agg(DISTINCT g.name),
-          'rating', m.rating,
-          'poster_url', m.poster_url
-        ) as movie,
-        json_build_object(
-          'id', t.id,
-          'name', t.name,
-          'capacity', t.capacity,
-          'type', t.type
-        ) as theater
-      FROM showtimes s
-      JOIN movies m ON s.movie_id = m.id
-      JOIN theaters t ON s.theater_id = t.id
-      LEFT JOIN movie_genres mg ON m.id = mg.movie_id
-      LEFT JOIN genres g ON mg.genre_id = g.id
-      WHERE s.start_time >= NOW()
-    `;
+    const {
+      page = 1,
+      limit = 10,
+      movieId,
+      theaterId,
+      startDate,
+      endDate,
+    } = req.query;
 
-    const queryParams = [];
-    if (movieId) {
-      queryParams.push(movieId);
-      query += ` AND s.movie_id = $1`;
-    }
+    const showtimes = await Showtime.findAll({
+      limit: parseInt(limit),
+      offset: (parseInt(page) - 1) * parseInt(limit),
+      movieId: movieId ? parseInt(movieId) : null,
+      theaterId: theaterId ? parseInt(theaterId) : null,
+      startDate: startDate ? new Date(startDate) : new Date(),
+      endDate: endDate ? new Date(endDate) : null,
+    });
 
-    query += `
-      GROUP BY s.id, m.id, t.id
-      ORDER BY s.start_time ASC
-    `;
-
-    const result = await pool.query(query, queryParams);
-    res.json(result.rows);
+    res.json({
+      showtimes,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+      },
+    });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "Error fetching showtimes" });
+    console.error("Error fetching showtimes:", err);
+    res.status(500).json({
+      message: "Error fetching showtimes",
+      error: err.message,
+    });
   }
 });
 
 // Get showtime by ID
 router.get("/:id", async (req, res) => {
   try {
-    const result = await pool.query(
-      `
-      SELECT 
-        s.*,
-        m.title, m.duration, m.rating, m.poster_url,
-        t.name as theater_name, t.capacity, t.type as theater_type,
-        array_agg(DISTINCT g.name) as genres,
-        json_build_object(
-          'id', m.id,
-          'title', m.title,
-          'duration', m.duration,
-          'genres', array_agg(DISTINCT g.name),
-          'rating', m.rating,
-          'poster_url', m.poster_url
-        ) as movie,
-        json_build_object(
-          'id', t.id,
-          'name', t.name,
-          'capacity', t.capacity,
-          'type', t.type
-        ) as theater
-      FROM showtimes s
-      JOIN movies m ON s.movie_id = m.id
-      JOIN theaters t ON s.theater_id = t.id
-      LEFT JOIN movie_genres mg ON m.id = mg.movie_id
-      LEFT JOIN genres g ON mg.genre_id = g.id
-      WHERE s.id = $1
-      GROUP BY s.id, m.id, t.id
-    `,
-      [req.params.id]
-    );
+    const showtime = await Showtime.findById(req.params.id);
 
-    if (result.rows.length === 0) {
+    if (!showtime) {
       return res.status(404).json({ message: "Showtime not found" });
     }
 
-    res.json(result.rows[0]);
+    res.json(showtime);
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "Error fetching showtime" });
+    console.error("Error fetching showtime:", err);
+    res.status(500).json({
+      message: "Error fetching showtime",
+      error: err.message,
+    });
   }
 });
 
@@ -105,120 +64,203 @@ router.post("/", [auth, admin], async (req, res) => {
   try {
     const { movie_id, theater_id, start_time, price } = req.body;
 
-    const result = await pool.query(
-      `INSERT INTO showtimes (movie_id, theater_id, start_time, price)
-       VALUES ($1, $2, $3, $4)
-       RETURNING *`,
-      [movie_id, theater_id, start_time, price]
-    );
+    const showtime = await Showtime.create({
+      movieId: parseInt(movie_id),
+      theaterId: parseInt(theater_id),
+      startTime: new Date(start_time),
+      price: parseFloat(price),
+    });
 
-    res.status(201).json(result.rows[0]);
+    res.status(201).json(showtime);
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "Error creating showtime" });
+    console.error("Error creating showtime:", err);
+
+    if (
+      err.message.includes("required") ||
+      err.message.includes("valid") ||
+      err.message.includes("conflicts")
+    ) {
+      return res.status(400).json({
+        message: "Validation error",
+        error: err.message,
+      });
+    }
+
+    if (err.message.includes("not found")) {
+      return res.status(404).json({
+        message: err.message,
+      });
+    }
+
+    res.status(500).json({
+      message: "Error creating showtime",
+      error: err.message,
+    });
   }
 });
 
 // Update showtime (Admin only)
 router.put("/:id", [auth, admin], async (req, res) => {
   try {
-    const { movie_id, theater_id, start_time, price } = req.body;
+    const { start_time, price } = req.body;
 
-    const result = await pool.query(
-      `UPDATE showtimes
-       SET movie_id = $1, theater_id = $2, start_time = $3, price = $4
-       WHERE id = $5
-       RETURNING *`,
-      [movie_id, theater_id, start_time, price, req.params.id]
-    );
+    const showtime = await Showtime.update(req.params.id, {
+      startTime: start_time ? new Date(start_time) : undefined,
+      price: price ? parseFloat(price) : undefined,
+    });
 
-    if (result.rows.length === 0) {
-      return res.status(404).json({ message: "Showtime not found" });
+    res.json(showtime);
+  } catch (err) {
+    console.error("Error updating showtime:", err);
+
+    if (err.message === "Showtime not found") {
+      return res.status(404).json({ message: err.message });
     }
 
-    res.json(result.rows[0]);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "Error updating showtime" });
+    if (
+      err.message.includes("required") ||
+      err.message.includes("valid") ||
+      err.message.includes("conflicts")
+    ) {
+      return res.status(400).json({
+        message: "Validation error",
+        error: err.message,
+      });
+    }
+
+    res.status(500).json({
+      message: "Error updating showtime",
+      error: err.message,
+    });
   }
 });
 
 // Delete showtime (Admin only)
 router.delete("/:id", [auth, admin], async (req, res) => {
   try {
-    const result = await pool.query(
-      "DELETE FROM showtimes WHERE id = $1 RETURNING *",
-      [req.params.id]
-    );
+    const result = await Showtime.delete(req.params.id);
+    res.json(result);
+  } catch (err) {
+    console.error("Error deleting showtime:", err);
 
-    if (result.rows.length === 0) {
-      return res.status(404).json({ message: "Showtime not found" });
+    if (err.message === "Showtime not found") {
+      return res.status(404).json({ message: err.message });
     }
 
-    res.json({ message: "Showtime deleted successfully" });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "Error deleting showtime" });
+    if (err.message.includes("active reservations")) {
+      return res.status(400).json({
+        message: err.message,
+      });
+    }
+
+    res.status(500).json({
+      message: "Error deleting showtime",
+      error: err.message,
+    });
   }
 });
 
 // Add multiple showtimes (Admin only)
 router.post("/batch", [auth, admin], async (req, res) => {
-  const client = await pool.connect();
   try {
-    await client.query("BEGIN");
-
     const { movie_id, theater_id, dates, times, price } = req.body;
-    const results = [];
 
+    // Validate input
+    if (
+      !Array.isArray(dates) ||
+      !Array.isArray(times) ||
+      dates.length === 0 ||
+      times.length === 0
+    ) {
+      return res.status(400).json({
+        message: "Validation error",
+        error: "dates and times must be non-empty arrays",
+      });
+    }
+
+    const results = [];
     for (const date of dates) {
       for (const time of times) {
         const [hours, minutes] = time.split(":");
         const start_time = new Date(date);
         start_time.setHours(parseInt(hours), parseInt(minutes), 0, 0);
 
-        const result = await client.query(
-          `INSERT INTO showtimes (movie_id, theater_id, start_time, price)
-           VALUES ($1, $2, $3, $4)
-           RETURNING *`,
-          [movie_id, theater_id, start_time, price]
-        );
-        results.push(result.rows[0]);
+        try {
+          const showtime = await Showtime.create({
+            movieId: parseInt(movie_id),
+            theaterId: parseInt(theater_id),
+            startTime: start_time,
+            price: parseFloat(price),
+          });
+          results.push(showtime);
+        } catch (err) {
+          // Log error but continue with other times
+          console.error(`Error creating showtime for ${date} ${time}:`, err);
+        }
       }
     }
 
-    await client.query("COMMIT");
-    res.status(201).json(results);
+    if (results.length === 0) {
+      return res.status(400).json({
+        message: "No showtimes were created",
+        error: "All showtime creation attempts failed",
+      });
+    }
+
+    res.status(201).json({
+      message: `Successfully created ${results.length} showtimes`,
+      showtimes: results,
+    });
   } catch (err) {
-    await client.query("ROLLBACK");
-    console.error(err);
-    res.status(500).json({ message: "Error creating showtimes" });
-  } finally {
-    client.release();
+    console.error("Error creating batch showtimes:", err);
+    res.status(500).json({
+      message: "Error creating batch showtimes",
+      error: err.message,
+    });
   }
 });
 
 // Get seats for a showtime
 router.get("/:id/seats", async (req, res) => {
   try {
-    const result = await pool.query(
-      `
-      SELECT s.*, r.id as reservation_id,
-             CASE WHEN r.id IS NOT NULL AND r.status = 'active' THEN true ELSE false END as is_occupied
-      FROM seats s
-      LEFT JOIN reservations r ON s.id = r.seat_id AND r.showtime_id = $1 AND r.status = 'active'
-      WHERE s.theater_id = (
-        SELECT theater_id FROM showtimes WHERE id = $1
-      )
-      ORDER BY s.row_number, s.seat_number
-    `,
-      [req.params.id]
-    );
-
-    res.json(result.rows);
+    const seats = await Showtime.getAvailableSeats(req.params.id);
+    res.json(seats);
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "Error fetching seats" });
+    console.error("Error fetching seats:", err);
+
+    if (err.message === "Showtime not found") {
+      return res.status(404).json({ message: err.message });
+    }
+
+    res.status(500).json({
+      message: "Error fetching seats",
+      error: err.message,
+    });
+  }
+});
+
+// Validate seat for a showtime
+router.get("/:id/seats/:seatId/validate", async (req, res) => {
+  try {
+    const isValid = await Showtime.isValidSeat(
+      req.params.id,
+      req.params.seatId
+    );
+    res.json({ isValid });
+  } catch (err) {
+    console.error("Error validating seat:", err);
+
+    if (err.message.includes("required")) {
+      return res.status(400).json({
+        message: "Validation error",
+        error: err.message,
+      });
+    }
+
+    res.status(500).json({
+      message: "Error validating seat",
+      error: err.message,
+    });
   }
 });
 
