@@ -39,7 +39,7 @@ pool
     `SELECT t.oid, t.typname
      FROM pg_type t
      JOIN pg_namespace n ON t.typnamespace = n.oid
-     WHERE t.typname IN ('user_role', 'reservation_status', 'theater_type')
+     WHERE t.typname IN ('user_role')
      AND n.nspname = 'public'`
   )
   .then((result) => {

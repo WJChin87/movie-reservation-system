@@ -9,14 +9,7 @@ async function checkDatabase() {
     console.log("Successfully connected to database");
 
     // Check if tables exist
-    const tables = [
-      "users",
-      "movies",
-      "theaters",
-      "showtimes",
-      "seats",
-      "reservations",
-    ];
+    const tables = ["users", "movies", "genres", "movie_genres"];
     for (const table of tables) {
       const result = await client.query(
         `
@@ -31,18 +24,6 @@ async function checkDatabase() {
 
       console.log(`Table ${table} exists:`, result.rows[0].exists);
     }
-
-    // Check reservations table structure
-    const reservationsStructure = await client.query(`
-      SELECT column_name, data_type, is_nullable
-      FROM information_schema.columns
-      WHERE table_schema = 'public'
-      AND table_name = 'reservations'
-      ORDER BY ordinal_position;
-    `);
-
-    console.log("\nReservations table structure:");
-    console.log(reservationsStructure.rows);
 
     client.release();
     process.exit(0);

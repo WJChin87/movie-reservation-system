@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Movies - Movie Reservation System</title>
+    <title>Movies - Movie Catalog</title>
     <link rel="stylesheet" href="/css/style.css" />
     <style>
       .movie-grid {
@@ -93,122 +93,56 @@
     </style>
   </head>
   <body>
-    <div class="container">
-      <h2>Movie Reservation System</h2>
-      <nav class="nav-links">
-        <a href="/movies.html">Movies</a>
-        <a href="/reservations.html">My Reservations</a>
-        <button onclick="logout()" class="logout-btn">Logout</button>
+    <header>
+      <nav>
+        <ul>
+          <li><a href="/">Home</a></li>
+          <li><a href="/movies.html">Movies</a></li>
+          <li><a href="/login.html" class="auth-link">Login</a></li>
+          <li><a href="/register.html" class="auth-link">Register</a></li>
+        </ul>
       </nav>
+    </header>
 
-      <div id="movieGrid" class="movie-grid"></div>
-      <div id="pagination" class="pagination"></div>
-      <div id="message"></div>
-    </div>
+    <main>
+      <h1>Movies</h1>
+      <div class="filters">
+        <select id="genreFilter">
+          <option value="">All Genres</option>
+        </select>
+        <select id="ratingFilter">
+          <option value="">All Ratings</option>
+          <option value="G">G</option>
+          <option value="PG">PG</option>
+          <option value="PG-13">PG-13</option>
+          <option value="R">R</option>
+          <option value="NC-17">NC-17</option>
+        </select>
+      </div>
 
-    <script>
-      const API_URL = "http://localhost:3000/api";
-      const authToken = localStorage.getItem("token");
-      let currentPage = 1;
+      <div id="moviesList" class="movies-grid"></div>
 
-      // Check authentication
-      if (!authToken) {
-        window.location.href = "/login.html";
-      }
+      <div class="pagination">
+        <button id="prevPage" disabled>Previous</button>
+        <span id="currentPage">Page 1</span>
+        <button id="nextPage">Next</button>
+      </div>
+    </main>
 
-      // Load movies when page loads
-      document.addEventListener("DOMContentLoaded", () => loadMovies(1));
+    <template id="movieTemplate">
+      <div class="movie-card">
+        <img class="movie-poster" src="" alt="" />
+        <div class="movie-info">
+          <h3 class="movie-title"></h3>
+          <p class="movie-rating"></p>
+          <p class="movie-duration"></p>
+          <p class="movie-description"></p>
+          <div class="movie-genres"></div>
+        </div>
+      </div>
+    </template>
 
-      async function loadMovies(page = 1) {
-        try {
-          const response = await fetch(`${API_URL}/movies?page=${page}`, {
-            headers: { Authorization: `Bearer ${authToken}` },
-          });
-
-          const data = await response.json();
-          const { movies, pagination } = data;
-
-          const movieGrid = document.getElementById("movieGrid");
-          movieGrid.innerHTML = movies
-            .map(
-              (movie) => `
-                <div class="movie-card">
-                  <div class="poster-container">
-                    <img src="${movie.poster_url}" alt="${
-                movie.title
-              }" class="movie-poster">
-                  </div>
-                  <div class="movie-info">
-                    <h3 class="movie-title">${movie.title}</h3>
-                    <div class="movie-details">
-                      <p><strong>Duration:</strong> ${
-                        movie.duration
-                      } minutes</p>
-                      <p><strong>Genre:</strong> ${movie.genres
-                        .map((g) => g.name)
-                        .join(", ")}</p>
-                      <p><strong>Rating:</strong> ${movie.rating}</p>
-                      <p>${movie.description}</p>
-                    </div>
-                    <button class="showtimes-btn" onclick="viewShowtimes(${
-                      movie.id
-                    }, '${movie.title}')">View Showtimes</button>
-                  </div>
-                </div>
-              `
-            )
-            .join("");
-
-          // Update pagination
-          const paginationDiv = document.getElementById("pagination");
-          if (pagination.pages > 1) {
-            let paginationHTML = `
-              <button onclick="loadMovies(1)" ${
-                page === 1 ? "disabled" : ""
-              }>First</button>
-              <button onclick="loadMovies(${page - 1})" ${
-              page === 1 ? "disabled" : ""
-            }>Previous</button>
-            `;
-
-            for (let i = 1; i <= pagination.pages; i++) {
-              paginationHTML += `
-                <button onclick="loadMovies(${i})" class="${
-                i === page ? "active" : ""
-              }">${i}</button>
-              `;
-            }
-
-            paginationHTML += `
-              <button onclick="loadMovies(${page + 1})" ${
-              page === pagination.pages ? "disabled" : ""
-            }>Next</button>
-              <button onclick="loadMovies(${pagination.pages})" ${
-              page === pagination.pages ? "disabled" : ""
-            }>Last</button>
-            `;
-
-            paginationDiv.innerHTML = paginationHTML;
-          } else {
-            paginationDiv.innerHTML = "";
-          }
-        } catch (error) {
-          console.error("Error loading movies:", error);
-          document.getElementById("message").innerHTML =
-            "Error loading movies. Please try again later.";
-        }
-      }
-
-      function viewShowtimes(movieId, movieTitle) {
-        window.location.href = `/showtimes.html?movieId=${movieId}&title=${encodeURIComponent(
-          movieTitle
-        )}`;
-      }
-
-      function logout() {
-        localStorage.removeItem("token");
-        window.location.href = "/login.html";
-      }
-    </script>
+    <script src="/js/auth.js"></script>
+    <script src="/js/movies.js"></script>
   </body>
 </html>

@@ -3,25 +3,28 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Movie Reservation System</title>
+    <title>Movie Catalog</title>
     <link rel="stylesheet" href="/css/style.css" />
   </head>
   <body>
-    <div class="container">
-      <h2>Welcome to Movie Reservation System</h2>
-      <div id="content">
-        <p>Loading...</p>
-      </div>
-    </div>
+    <header>
+      <nav>
+        <ul>
+          <li><a href="/">Home</a></li>
+          <li><a href="/movies.html">Movies</a></li>
+          <li><a href="/login.html" class="auth-link">Login</a></li>
+          <li><a href="/register.html" class="auth-link">Register</a></li>
+        </ul>
+      </nav>
+    </header>
 
-    <script>
-      // Check if user is logged in
-      const token = localStorage.getItem("token");
-      if (token) {
-        window.location.href = "/movies.html";
-      } else {
-        window.location.href = "/login.html";
-      }
-    </script>
+    <main>
+      <h1>Welcome to Movie Catalog</h1>
+      <p>
+        Browse our collection of movies and discover your next favorite film!
+      </p>
+    </main>
+
+    <script src="/js/auth.js"></script>
   </body>
 </html>
