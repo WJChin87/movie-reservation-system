@@ -57,7 +57,8 @@ label {
   color: #666;
 }
 
-input {
+input,
+select {
   width: 100%;
   padding: 8px;
   border: 1px solid #ddd;
@@ -102,29 +103,114 @@ button:hover {
 /* Movies Grid */
 .movies-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
-  gap: 20px;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 25px;
   margin-top: 20px;
 }
 
 .movie-card {
+  background: white;
   border: 1px solid #ddd;
-  padding: 15px;
   border-radius: 8px;
-  transition: transform 0.2s;
+  overflow: hidden;
+  transition: transform 0.2s, box-shadow 0.2s;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
 }
 
 .movie-card:hover {
   transform: translateY(-5px);
-  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.poster-container {
+  position: relative;
+  padding-top: 150%; /* 2:3 aspect ratio */
+  overflow: hidden;
 }
 
 .movie-poster {
+  position: absolute;
+  top: 0;
+  left: 0;
   width: 100%;
-  height: 300px;
+  height: 100%;
   object-fit: cover;
+}
+
+.movie-info {
+  padding: 15px;
+  flex-grow: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.movie-info h3 {
+  margin: 0 0 10px 0;
+  font-size: 1.2em;
+  color: #333;
+}
+
+.movie-info p {
+  margin: 5px 0;
+  color: #666;
+  font-size: 0.9em;
+}
+
+.movie-description {
+  margin-top: 10px;
+  flex-grow: 1;
+  font-size: 0.9em;
+  line-height: 1.4;
+  color: #555;
+}
+
+.movie-genres {
+  margin-top: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.genre-tag {
+  display: inline-block;
+  padding: 4px 8px;
+  background-color: #e9ecef;
   border-radius: 4px;
-  margin-bottom: 10px;
+  font-size: 0.8em;
+  color: #495057;
+}
+
+/* Filters */
+.filters {
+  margin-bottom: 20px;
+  display: flex;
+  gap: 20px;
+  align-items: center;
+}
+
+.filters .form-group {
+  min-width: 200px;
+  margin: 0;
+}
+
+/* Pagination */
+.pagination {
+  margin-top: 30px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 15px;
+}
+
+.pagination button {
+  min-width: 100px;
+}
+
+.pagination span {
+  color: #666;
+  font-size: 0.9em;
 }
 
 /* Modal */

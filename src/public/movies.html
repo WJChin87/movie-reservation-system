@@ -93,33 +93,30 @@
     </style>
   </head>
   <body>
-    <header>
-      <nav>
-        <ul>
-          <li><a href="/">Home</a></li>
-          <li><a href="/movies.html">Movies</a></li>
-          <li><a href="/login.html" class="auth-link">Login</a></li>
-          <li><a href="/register.html" class="auth-link">Register</a></li>
-        </ul>
+    <div class="container">
+      <h2>Movie Catalog</h2>
+      <nav class="nav-links">
+        <a href="/">Home</a>
+        <a href="/movies.html">Movies</a>
+        <a href="/login.html" class="auth-link">Login</a>
+        <a href="/register.html" class="auth-link">Register</a>
       </nav>
-    </header>
 
-    <main>
-      <h1>Movies</h1>
       <div class="filters">
-        <select id="genreFilter">
-          <option value="">All Genres</option>
-        </select>
-        <select id="ratingFilter">
-          <option value="">All Ratings</option>
-          <option value="G">G</option>
-          <option value="PG">PG</option>
-          <option value="PG-13">PG-13</option>
-          <option value="R">R</option>
-          <option value="NC-17">NC-17</option>
-        </select>
+        <div class="form-group">
+          <label for="ratingFilter">Rating:</label>
+          <select id="ratingFilter" class="form-control">
+            <option value="">All Ratings</option>
+            <option value="G">G</option>
+            <option value="PG">PG</option>
+            <option value="PG-13">PG-13</option>
+            <option value="R">R</option>
+            <option value="NC-17">NC-17</option>
+          </select>
+        </div>
       </div>
 
+      <div id="message"></div>
       <div id="moviesList" class="movies-grid"></div>
 
       <div class="pagination">
@@ -127,22 +124,174 @@
         <span id="currentPage">Page 1</span>
         <button id="nextPage">Next</button>
       </div>
-    </main>
+    </div>
 
-    <template id="movieTemplate">
-      <div class="movie-card">
-        <img class="movie-poster" src="" alt="" />
-        <div class="movie-info">
-          <h3 class="movie-title"></h3>
-          <p class="movie-rating"></p>
-          <p class="movie-duration"></p>
-          <p class="movie-description"></p>
-          <div class="movie-genres"></div>
-        </div>
-      </div>
-    </template>
+    <script>
+      // State management
+      let currentPage = 1;
+      const moviesPerPage = 10;
+      let currentRating = "";
 
-    <script src="/js/auth.js"></script>
-    <script src="/js/movies.js"></script>
+      // DOM Elements
+      const moviesList = document.getElementById("moviesList");
+      const ratingFilter = document.getElementById("ratingFilter");
+      const prevPageBtn = document.getElementById("prevPage");
+      const nextPageBtn = document.getElementById("nextPage");
+      const currentPageSpan = document.getElementById("currentPage");
+
+      // Fetch movies from the API
+      async function fetchMovies() {
+        try {
+          const response = await fetch(
+            `/api/movies?page=${currentPage}&limit=${moviesPerPage}`
+          );
+          if (!response.ok) {
+            throw new Error("Failed to fetch movies");
+          }
+          const data = await response.json();
+          displayMovies(data.movies);
+          updatePagination(data.pagination);
+        } catch (error) {
+          showMessage("Error loading movies: " + error.message, "error");
+        }
+      }
+
+      // Display movies in the grid
+      function displayMovies(movies) {
+        moviesList.innerHTML = "";
+
+        if (!movies || !movies.length) {
+          showMessage("No movies found", "info");
+          return;
+        }
+
+        movies
+          .filter((movie) => !currentRating || movie.rating === currentRating)
+          .forEach((movie) => {
+            const movieCard = document.createElement("div");
+            movieCard.className = "movie-card";
+
+            const duration = `${Math.floor(movie.duration / 60)}h ${
+              movie.duration % 60
+            }min`;
+
+            movieCard.innerHTML = `
+              <div class="poster-container">
+                <img src="${movie.poster_url || "/images/no-poster.jpg"}" 
+                     alt="${movie.title}" 
+                     class="movie-poster"
+                     onerror="this.src='/images/no-poster.jpg'">
+              </div>
+              <div class="movie-info">
+                  <h3>${movie.title}</h3>
+                  <p class="movie-rating">Rating: ${movie.rating || "N/A"}</p>
+                  <p class="movie-duration">Duration: ${duration}</p>
+                  <p class="movie-description">${
+                    movie.description || "No description available."
+                  }</p>
+                  <div class="movie-genres">
+                      ${movie.genres
+                        .map(
+                          (genre) =>
+                            `<span class="genre-tag">${genre.name}</span>`
+                        )
+                        .join("")}
+                  </div>
+              </div>
+            `;
+
+            moviesList.appendChild(movieCard);
+          });
+      }
+
+      // Update pagination controls
+      function updatePagination(pagination) {
+        if (pagination) {
+          prevPageBtn.disabled = currentPage === 1;
+          nextPageBtn.disabled = currentPage === pagination.pages;
+          currentPageSpan.textContent = `Page ${pagination.current_page} of ${pagination.pages}`;
+        }
+      }
+
+      // Show message function
+      function showMessage(message, type) {
+        const messageDiv = document.getElementById("message");
+        if (messageDiv) {
+          messageDiv.textContent = message;
+          messageDiv.className = type;
+          setTimeout(() => {
+            messageDiv.textContent = "";
+            messageDiv.className = "";
+          }, 3000);
+        }
+      }
+
+      // Event Listeners
+      ratingFilter.addEventListener("change", (e) => {
+        currentRating = e.target.value;
+        currentPage = 1;
+        fetchMovies();
+      });
+
+      prevPageBtn.addEventListener("click", () => {
+        if (currentPage > 1) {
+          currentPage--;
+          fetchMovies();
+        }
+      });
+
+      nextPageBtn.addEventListener("click", () => {
+        currentPage++;
+        fetchMovies();
+      });
+
+      // Check authentication state
+      function checkAuth() {
+        const token = localStorage.getItem("token");
+        const user = JSON.parse(localStorage.getItem("user") || "null");
+        const authLinks = document.querySelectorAll(".auth-link");
+
+        if (token && user) {
+          authLinks.forEach((link) => {
+            if (
+              link.href.includes("login.html") ||
+              link.href.includes("register.html")
+            ) {
+              link.style.display = "none";
+            }
+          });
+
+          if (!document.querySelector(".logout-btn")) {
+            const nav = document.querySelector(".nav-links");
+            const logoutBtn = document.createElement("a");
+            logoutBtn.href = "#";
+            logoutBtn.className = "logout-btn";
+            logoutBtn.textContent = "Logout";
+            logoutBtn.onclick = logout;
+            nav.appendChild(logoutBtn);
+          }
+        } else {
+          authLinks.forEach((link) => {
+            link.style.display = "inline-block";
+          });
+
+          const logoutBtn = document.querySelector(".logout-btn");
+          if (logoutBtn) {
+            logoutBtn.remove();
+          }
+        }
+      }
+
+      // Logout function
+      function logout() {
+        localStorage.removeItem("token");
+        localStorage.removeItem("user");
+        window.location.href = "/login.html";
+      }
+
+      // Initialize
+      checkAuth();
+      fetchMovies();
+    </script>
   </body>
 </html>
