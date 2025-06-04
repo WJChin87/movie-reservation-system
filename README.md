@@ -26,7 +26,7 @@ brew services start postgresql@14
 createdb movie_reservation
 
 # Initialize database schema
-psql -d movie_reservation -a -f src/config/database.sql
+psql -d movie_reservation -a -f src/config/schema.sql
 ```
 
 3. Configure environment variables:

@@ -14,7 +14,7 @@ const pool = new Pool({
 async function initializeDatabase() {
   try {
     // Read the SQL file
-    const sqlPath = path.join(__dirname, "init.sql");
+    const sqlPath = path.join(__dirname, "schema.sql");
     const sql = fs.readFileSync(sqlPath, "utf8");
 
     // Execute the SQL commands
