@@ -1,4 +1,5 @@
 const db = require("../config/database");
+const Seat = require("./Seat");
 
 class Showtime {
   static validateShowtime({ movieId, theaterId, startTime, price }) {
@@ -173,32 +174,7 @@ class Showtime {
       throw new Error("Showtime ID is required");
     }
 
-    return db.transaction(async (client) => {
-      // Verify showtime exists and get theater info
-      const showtime = await this.findById(showtimeId, client);
-      if (!showtime) {
-        throw new Error("Showtime not found");
-      }
-
-      const result = await client.query(
-        `SELECT 
-          s.id,
-          s.row_number,
-          s.seat_number,
-          CASE WHEN r.id IS NULL THEN false ELSE true END as is_reserved
-        FROM seats s
-        JOIN theaters t ON s.theater_id = t.id
-        JOIN showtimes st ON st.theater_id = t.id
-        LEFT JOIN reservations r ON r.seat_id = s.id 
-          AND r.showtime_id = st.id 
-          AND r.status = 'active'
-        WHERE st.id = $1
-        ORDER BY s.row_number, s.seat_number`,
-        [showtimeId]
-      );
-
-      return result.rows;
-    });
+    return Seat.findByShowtime(showtimeId);
   }
 
   static async isValidSeat(showtimeId, seatId) {
@@ -206,25 +182,7 @@ class Showtime {
       throw new Error("Showtime ID and seat ID are required");
     }
 
-    const result = await db.query(
-      `SELECT EXISTS (
-        SELECT 1
-        FROM seats s
-        JOIN theaters t ON s.theater_id = t.id
-        JOIN showtimes st ON st.theater_id = t.id
-        WHERE st.id = $1 AND s.id = $2
-        AND NOT EXISTS (
-          SELECT 1
-          FROM reservations r
-          WHERE r.showtime_id = st.id
-          AND r.seat_id = s.id
-          AND r.status = 'active'
-        )
-      ) as is_valid`,
-      [showtimeId, seatId]
-    );
-
-    return result.rows[0].is_valid;
+    return Seat.validateSeats(showtimeId, [seatId]);
   }
 
   static async update(id, { price, startTime }) {

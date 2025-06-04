@@ -1,21 +1,22 @@
 const db = require("../config/database");
 const Showtime = require("./Showtime");
+const Seat = require("./Seat");
 
 class Reservation {
-  static validateReservation({ userId, showtimeId, seatId }) {
+  static validateReservation({ userId, showtimeId, seatIds }) {
     if (!userId || typeof userId !== "number") {
       throw new Error("Valid user ID is required");
     }
     if (!showtimeId || typeof showtimeId !== "number") {
       throw new Error("Valid showtime ID is required");
     }
-    if (!seatId || typeof seatId !== "number") {
-      throw new Error("Valid seat ID is required");
+    if (!seatIds || !Array.isArray(seatIds) || seatIds.length === 0) {
+      throw new Error("Valid seat IDs are required");
     }
   }
 
-  static async create({ userId, showtimeId, seatId }) {
-    this.validateReservation({ userId, showtimeId, seatId });
+  static async create({ userId, showtimeId, seatIds }) {
+    this.validateReservation({ userId, showtimeId, seatIds });
 
     return db.transaction(async (client) => {
       // Verify showtime exists and is in the future
@@ -33,62 +34,41 @@ class Reservation {
         throw new Error("Cannot make reservations for past showtimes");
       }
 
-      // Check if seat is valid for this showtime
-      const seatValid = await client.query(
-        `SELECT s.id, t.capacity 
-         FROM seats s
-         JOIN theaters t ON s.theater_id = t.id
-         JOIN showtimes sh ON sh.theater_id = t.id
-         WHERE sh.id = $1 AND s.id = $2`,
-        [showtimeId, seatId]
-      );
-
-      if (seatValid.rows.length === 0) {
-        throw new Error("Invalid seat for this showtime");
+      // Validate seats availability
+      const seatsValid = await Seat.validateSeats(showtimeId, seatIds);
+      if (!seatsValid) {
+        throw new Error("One or more selected seats are not available");
       }
 
-      // Check if seat is still available
-      const seatAvailable = await client.query(
-        `SELECT 1 FROM seats s
-         WHERE s.id = $1
-         AND NOT EXISTS (
-           SELECT 1 FROM reservations r
-           WHERE r.seat_id = s.id
-           AND r.showtime_id = $2
-           AND r.status = 'active'
-         )`,
-        [seatId, showtimeId]
-      );
+      // Get showtime details for price calculation
+      const price = showtime.rows[0].price;
+      const totalAmount = price * seatIds.length;
 
-      if (seatAvailable.rows.length === 0) {
-        throw new Error("Seat is no longer available");
-      }
+      // Create the reservation
+      const reservationQuery = `
+        INSERT INTO reservations (user_id, showtime_id, total_amount)
+        VALUES ($1, $2, $3)
+        RETURNING *
+      `;
+      const reservationResult = await client.query(reservationQuery, [
+        userId,
+        showtimeId,
+        totalAmount,
+      ]);
+      const reservationId = reservationResult.rows[0].id;
 
-      // Check user's existing reservations for this showtime
-      const existingReservations = await client.query(
-        `SELECT COUNT(*) as count 
-         FROM reservations 
-         WHERE user_id = $1 
-         AND showtime_id = $2 
-         AND status = 'active'`,
-        [userId, showtimeId]
-      );
+      // Create reservation_seats entries
+      const seatValues = seatIds
+        .map((seatId) => `(${reservationId}, ${seatId})`)
+        .join(", ");
 
-      if (existingReservations.rows[0].count >= 5) {
-        throw new Error(
-          "Maximum number of reservations (5) reached for this showtime"
-        );
-      }
+      const seatsQuery = `
+        INSERT INTO reservation_seats (reservation_id, seat_id)
+        VALUES ${seatValues}
+      `;
+      await client.query(seatsQuery);
 
-      // Create reservation
-      const result = await client.query(
-        `INSERT INTO reservations (user_id, showtime_id, seat_id, price, status)
-         VALUES ($1, $2, $3, $4, 'active')
-         RETURNING id`,
-        [userId, showtimeId, seatId, showtime.rows[0].price]
-      );
-
-      return this.findById(result.rows[0].id, client);
+      return reservationResult.rows[0];
     });
   }
 
@@ -151,94 +131,62 @@ class Reservation {
     return result.rows;
   }
 
-  static async findById(id, client = db) {
-    if (!id) {
-      throw new Error("Reservation ID is required");
-    }
-
-    const result = await client.query(
-      `SELECT 
-        r.id,
-        r.user_id,
-        r.status,
-        r.created_at,
-        r.price as ticket_price,
-        m.id as movie_id,
+  static async findById(id) {
+    const query = `
+      SELECT 
+        r.*,
         m.title as movie_title,
-        m.poster_url,
-        sh.id as showtime_id,
-        sh.start_time,
-        t.id as theater_id,
+        m.poster_url as movie_poster_url,
         t.name as theater_name,
         t.type as theater_type,
-        st.row_number,
-        st.seat_number,
-        CASE 
-          WHEN sh.start_time > NOW() THEN true 
-          ELSE false 
-        END as is_upcoming
+        s.start_time,
+        s.price as ticket_price,
+        ARRAY_AGG(DISTINCT jsonb_build_object(
+          'id', st.id,
+          'row', st.row,
+          'number', st.number
+        )) as seats
       FROM reservations r
-      JOIN showtimes sh ON r.showtime_id = sh.id
-      JOIN movies m ON sh.movie_id = m.id
-      JOIN theaters t ON sh.theater_id = t.id
-      JOIN seats st ON r.seat_id = st.id
-      WHERE r.id = $1`,
-      [id]
-    );
-
+      JOIN showtimes s ON r.showtime_id = s.id
+      JOIN movies m ON s.movie_id = m.id
+      JOIN theaters t ON s.theater_id = t.id
+      JOIN reservation_seats rs ON rs.reservation_id = r.id
+      JOIN seats st ON rs.seat_id = st.id
+      WHERE r.id = $1
+      GROUP BY r.id, m.title, m.poster_url, t.name, t.type, s.start_time, s.price
+    `;
+    const result = await db.query(query, [id]);
     return result.rows[0];
   }
 
-  static async cancel(id, userId) {
-    if (!id || !userId) {
-      throw new Error("Reservation ID and user ID are required");
+  static async cancel(id) {
+    const client = await db.getClient();
+
+    try {
+      await client.query("BEGIN");
+
+      // Delete reservation_seats entries
+      await client.query(
+        "DELETE FROM reservation_seats WHERE reservation_id = $1",
+        [id]
+      );
+
+      // Delete the reservation
+      const query = `
+        DELETE FROM reservations
+        WHERE id = $1
+        RETURNING *
+      `;
+      const result = await client.query(query, [id]);
+
+      await client.query("COMMIT");
+      return result.rows[0];
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
     }
-
-    return db.transaction(async (client) => {
-      // Get reservation details
-      const reservation = await client.query(
-        `SELECT r.*, sh.start_time 
-         FROM reservations r
-         JOIN showtimes sh ON r.showtime_id = sh.id
-         WHERE r.id = $1 AND r.user_id = $2`,
-        [id, userId]
-      );
-
-      if (reservation.rows.length === 0) {
-        throw new Error("Reservation not found");
-      }
-
-      const { status, start_time } = reservation.rows[0];
-
-      // Validate cancellation
-      if (status === "cancelled") {
-        throw new Error("Reservation is already cancelled");
-      }
-
-      const showtime = new Date(start_time);
-      const now = new Date();
-      const hoursDifference = (showtime - now) / (1000 * 60 * 60);
-
-      if (hoursDifference < 1) {
-        throw new Error(
-          "Reservations can only be cancelled at least 1 hour before showtime"
-        );
-      }
-
-      // Cancel reservation
-      const result = await client.query(
-        `UPDATE reservations 
-         SET status = 'cancelled', 
-             cancelled_at = NOW()
-         WHERE id = $1 
-         AND user_id = $2
-         AND status = 'active'
-         RETURNING *`,
-        [id, userId]
-      );
-
-      return this.findById(result.rows[0].id, client);
-    });
   }
 
   static async getReservationsByShowtime(

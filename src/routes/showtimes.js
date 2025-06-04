@@ -2,6 +2,7 @@ const express = require("express");
 const router = express.Router();
 const { auth, admin } = require("../middleware/auth");
 const Showtime = require("../models/Showtime");
+const Seat = require("../models/Seat");
 
 // Get all showtimes with filtering and pagination
 router.get("/", async (req, res) => {
@@ -40,7 +41,7 @@ router.get("/", async (req, res) => {
   }
 });
 
-// Get showtime by ID
+// Get showtime by ID with theater and movie details
 router.get("/:id", async (req, res) => {
   try {
     const showtime = await Showtime.findById(req.params.id);
@@ -223,7 +224,7 @@ router.post("/batch", [auth, admin], async (req, res) => {
 // Get seats for a showtime
 router.get("/:id/seats", async (req, res) => {
   try {
-    const seats = await Showtime.getAvailableSeats(req.params.id);
+    const seats = await Seat.findByShowtime(req.params.id);
     res.json(seats);
   } catch (err) {
     console.error("Error fetching seats:", err);
@@ -242,10 +243,9 @@ router.get("/:id/seats", async (req, res) => {
 // Validate seat for a showtime
 router.get("/:id/seats/:seatId/validate", async (req, res) => {
   try {
-    const isValid = await Showtime.isValidSeat(
-      req.params.id,
-      req.params.seatId
-    );
+    const isValid = await Seat.validateSeats(parseInt(req.params.id), [
+      parseInt(req.params.seatId),
+    ]);
     res.json({ isValid });
   } catch (err) {
     console.error("Error validating seat:", err);

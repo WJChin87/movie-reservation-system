@@ -81,42 +81,31 @@ router.post("/", [auth], async (req, res) => {
       });
     }
 
-    // Create reservations for all seats
-    const reservations = [];
-    const errors = [];
+    // Create reservation with all seats
+    try {
+      const reservation = await Reservation.create({
+        userId: req.user.id,
+        showtimeId: parseInt(showtime_id),
+        seatIds: seat_ids.map((id) => parseInt(id)),
+      });
 
-    for (const seat_id of seat_ids) {
-      try {
-        const reservation = await Reservation.create({
-          userId: req.user.id,
-          showtimeId: parseInt(showtime_id),
-          seatId: parseInt(seat_id),
-        });
-        reservations.push(reservation);
-      } catch (err) {
-        errors.push({
-          seat_id,
+      res.status(201).json({
+        message: "Reservation created successfully",
+        reservation,
+      });
+    } catch (err) {
+      if (err.message.includes("not available")) {
+        return res.status(400).json({
+          message: "Seat reservation error",
           error: err.message,
         });
       }
+      throw err;
     }
-
-    if (reservations.length === 0) {
-      return res.status(400).json({
-        message: "No reservations could be created",
-        errors,
-      });
-    }
-
-    res.status(201).json({
-      message: `Successfully created ${reservations.length} reservations`,
-      reservations,
-      errors: errors.length > 0 ? errors : undefined,
-    });
   } catch (err) {
-    console.error("Error creating reservations:", err);
+    console.error("Error creating reservation:", err);
     res.status(500).json({
-      message: "Error creating reservations",
+      message: "Error creating reservation",
       error: err.message,
     });
   }
