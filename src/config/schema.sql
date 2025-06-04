@@ -27,8 +27,18 @@ CREATE TABLE users (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX idx_users_email ON users(email);
-CREATE INDEX idx_users_role ON users(role);
+-- Insert default admin user
+INSERT INTO users (email, password, role) VALUES
+('admin@example.com', '$2a$10$rYXvzUzgG1WxYX/RYpXyaOY6LqkNwJh3w5qPtAcRNJnEgZBF8YhyS', 'admin'); -- password: admin123
+
+-- Insert sample genres
+INSERT INTO genres (name) VALUES
+('Action'),
+('Adventure'),
+('Comedy'),
+('Drama'),
+('Science Fiction'),
+('Thriller');
 
 CREATE TABLE movies (
     id SERIAL PRIMARY KEY,
@@ -127,6 +137,11 @@ END;
 $$ language 'plpgsql';
 
 -- Create triggers for updated_at columns
+CREATE TRIGGER update_users_updated_at
+    BEFORE UPDATE ON users
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
 CREATE TRIGGER update_movies_updated_at
     BEFORE UPDATE ON movies
     FOR EACH ROW
@@ -141,19 +156,6 @@ CREATE TRIGGER update_showtimes_updated_at
     BEFORE UPDATE ON showtimes
     FOR EACH ROW
     EXECUTE FUNCTION update_updated_at_column();
-
--- Insert default admin user
-INSERT INTO users (email, password, role) VALUES
-('admin@example.com', '$2a$10$rYXvzUzgG1WxYX/RYpXyaOY6LqkNwJh3w5qPtAcRNJnEgZBF8YhyS', 'admin'); -- password: admin123
-
--- Insert sample genres
-INSERT INTO genres (name) VALUES
-('Action'),
-('Adventure'),
-('Comedy'),
-('Drama'),
-('Science Fiction'),
-('Thriller');
 
 -- Create view for upcoming showtimes with availability
 CREATE OR REPLACE VIEW upcoming_showtimes_availability AS
