@@ -1,144 +1,207 @@
 const express = require("express");
 const router = express.Router();
-const pool = require("../config/database");
 const { auth, admin } = require("../middleware/auth");
+const Movie = require("../models/Movie");
 
-// Get all movies
+// Get all movies with pagination and filtering
 router.get("/", async (req, res) => {
   try {
-    const result = await pool.query(`
-      SELECT m.*, array_agg(g.name) as genres
-      FROM movies m
-      LEFT JOIN movie_genres mg ON m.id = mg.movie_id
-      LEFT JOIN genres g ON mg.genre_id = g.id
-      GROUP BY m.id
-    `);
-    res.json(result.rows);
+    const { page = 1, limit = 10, genre } = req.query;
+    const offset = (page - 1) * limit;
+
+    const movies = await Movie.findAll({
+      limit: parseInt(limit),
+      offset: parseInt(offset),
+      genre: genre,
+    });
+
+    res.json({
+      movies,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+      },
+    });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "Error fetching movies" });
+    console.error("Error fetching movies:", err);
+    res.status(500).json({
+      message: "Error fetching movies",
+      error: err.message,
+    });
   }
 });
 
 // Get movie by ID
 router.get("/:id", async (req, res) => {
   try {
-    const result = await pool.query(
-      `
-      SELECT m.*, array_agg(g.name) as genres
-      FROM movies m
-      LEFT JOIN movie_genres mg ON m.id = mg.movie_id
-      LEFT JOIN genres g ON mg.genre_id = g.id
-      WHERE m.id = $1
-      GROUP BY m.id
-    `,
-      [req.params.id]
-    );
+    const movie = await Movie.findById(req.params.id);
 
-    if (result.rows.length === 0) {
+    if (!movie) {
       return res.status(404).json({ message: "Movie not found" });
     }
 
-    res.json(result.rows[0]);
+    res.json(movie);
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "Error fetching movie" });
+    console.error("Error fetching movie:", err);
+    res.status(500).json({
+      message: "Error fetching movie",
+      error: err.message,
+    });
   }
 });
 
 // Create movie (Admin only)
 router.post("/", [auth, admin], async (req, res) => {
-  const client = await pool.connect();
   try {
-    await client.query("BEGIN");
+    const {
+      title,
+      description,
+      duration,
+      rating,
+      poster_url: posterUrl,
+      genres,
+    } = req.body;
 
-    const { title, description, duration, rating, poster_url, genres } =
-      req.body;
+    const movie = await Movie.create({
+      title,
+      description,
+      duration: parseInt(duration),
+      posterUrl,
+      genres,
+    });
 
-    // Insert movie
-    const movieResult = await client.query(
-      `INSERT INTO movies (title, description, duration, rating, poster_url)
-       VALUES ($1, $2, $3, $4, $5)
-       RETURNING id`,
-      [title, description, duration, rating, poster_url]
-    );
+    res.status(201).json(movie);
+  } catch (err) {
+    console.error("Error creating movie:", err);
 
-    const movieId = movieResult.rows[0].id;
-
-    // Insert genres
-    if (genres && genres.length > 0) {
-      const genreValues = genres.map((genre) => `('${genre}')`).join(",");
-      await client.query(`
-        INSERT INTO genres (name)
-        VALUES ${genreValues}
-        ON CONFLICT (name) DO NOTHING
-      `);
-
-      const genreIds = await client.query(
-        `SELECT id FROM genres WHERE name = ANY($1)`,
-        [genres]
-      );
-
-      for (const row of genreIds.rows) {
-        await client.query(
-          `INSERT INTO movie_genres (movie_id, genre_id)
-           VALUES ($1, $2)`,
-          [movieId, row.id]
-        );
-      }
+    if (err.message.includes("required") || err.message.includes("valid")) {
+      return res.status(400).json({
+        message: "Validation error",
+        error: err.message,
+      });
     }
 
-    await client.query("COMMIT");
-    res.status(201).json({ id: movieId });
-  } catch (err) {
-    await client.query("ROLLBACK");
-    console.error(err);
-    res.status(500).json({ message: "Error creating movie" });
-  } finally {
-    client.release();
+    res.status(500).json({
+      message: "Error creating movie",
+      error: err.message,
+    });
   }
 });
 
 // Update movie (Admin only)
 router.put("/:id", [auth, admin], async (req, res) => {
   try {
-    const { title, description, duration, rating, poster_url } = req.body;
+    const {
+      title,
+      description,
+      duration,
+      rating,
+      poster_url: posterUrl,
+      genres,
+    } = req.body;
 
-    const result = await pool.query(
-      `UPDATE movies
-       SET title = $1, description = $2, duration = $3, rating = $4, poster_url = $5, updated_at = CURRENT_TIMESTAMP
-       WHERE id = $6
-       RETURNING *`,
-      [title, description, duration, rating, poster_url, req.params.id]
-    );
+    const movie = await Movie.update(req.params.id, {
+      title,
+      description,
+      duration: parseInt(duration),
+      posterUrl,
+      genres,
+    });
 
-    if (result.rows.length === 0) {
-      return res.status(404).json({ message: "Movie not found" });
+    res.json(movie);
+  } catch (err) {
+    console.error("Error updating movie:", err);
+
+    if (err.message === "Movie not found") {
+      return res.status(404).json({ message: err.message });
     }
 
-    res.json(result.rows[0]);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "Error updating movie" });
+    if (err.message.includes("required") || err.message.includes("valid")) {
+      return res.status(400).json({
+        message: "Validation error",
+        error: err.message,
+      });
+    }
+
+    res.status(500).json({
+      message: "Error updating movie",
+      error: err.message,
+    });
   }
 });
 
 // Delete movie (Admin only)
 router.delete("/:id", [auth, admin], async (req, res) => {
   try {
-    const result = await pool.query(
-      "DELETE FROM movies WHERE id = $1 RETURNING *",
-      [req.params.id]
-    );
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({ message: "Movie not found" });
-    }
-
+    await Movie.delete(req.params.id);
     res.json({ message: "Movie deleted successfully" });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "Error deleting movie" });
+    console.error("Error deleting movie:", err);
+
+    if (err.message === "Movie not found") {
+      return res.status(404).json({ message: err.message });
+    }
+
+    res.status(500).json({
+      message: "Error deleting movie",
+      error: err.message,
+    });
+  }
+});
+
+// Add genres to a movie (Admin only)
+router.post("/:id/genres", [auth, admin], async (req, res) => {
+  try {
+    const { genres } = req.body;
+
+    if (!Array.isArray(genres) || genres.length === 0) {
+      return res.status(400).json({
+        message: "Validation error",
+        error: "genres must be a non-empty array of genre IDs",
+      });
+    }
+
+    const movie = await Movie.addGenres(req.params.id, genres);
+    res.json(movie);
+  } catch (err) {
+    console.error("Error adding genres:", err);
+
+    if (err.message === "Movie not found") {
+      return res.status(404).json({ message: err.message });
+    }
+
+    res.status(500).json({
+      message: "Error adding genres to movie",
+      error: err.message,
+    });
+  }
+});
+
+// Remove genres from a movie (Admin only)
+router.delete("/:id/genres", [auth, admin], async (req, res) => {
+  try {
+    const { genres } = req.body;
+
+    if (!Array.isArray(genres) || genres.length === 0) {
+      return res.status(400).json({
+        message: "Validation error",
+        error: "genres must be a non-empty array of genre IDs",
+      });
+    }
+
+    const movie = await Movie.removeGenres(req.params.id, genres);
+    res.json(movie);
+  } catch (err) {
+    console.error("Error removing genres:", err);
+
+    if (err.message === "Movie not found") {
+      return res.status(404).json({ message: err.message });
+    }
+
+    res.status(500).json({
+      message: "Error removing genres from movie",
+      error: err.message,
+    });
   }
 });
 
