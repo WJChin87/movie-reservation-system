@@ -1,58 +1,39 @@
 const express = require("express");
 const router = express.Router();
-const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
-const pool = require("../config/database");
+const User = require("../models/User");
 
 // Register
 router.post("/register", async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    // Validate input
-    if (!email || !password) {
-      return res.status(400).json({ message: "All fields are required" });
-    }
-
-    if (password.length < 6) {
-      return res
-        .status(400)
-        .json({ message: "Password must be at least 6 characters long" });
-    }
-
-    // Check if user already exists
-    const userExists = await pool.query(
-      "SELECT id FROM users WHERE email = $1",
-      [email]
-    );
-
-    if (userExists.rows.length > 0) {
-      return res.status(400).json({ message: "User already exists" });
-    }
-
-    // Hash password
-    const salt = await bcrypt.genSalt(10);
-    const hashedPassword = await bcrypt.hash(password, salt);
-
-    // Insert user
-    const result = await pool.query(
-      "INSERT INTO users (email, password, role) VALUES ($1, $2, $3) RETURNING id, email, role",
-      [email, hashedPassword, "user"]
-    );
+    // Create user using User model (which includes validation)
+    const user = await User.create({ email, password });
 
     // Create token
     const token = jwt.sign(
-      { id: result.rows[0].id, role: result.rows[0].role },
+      { id: user.id, role: user.role },
       process.env.JWT_SECRET,
       { expiresIn: "1d" }
     );
 
     res.status(201).json({
       token,
-      user: result.rows[0],
+      user,
     });
   } catch (err) {
     console.error("Registration error:", err);
+
+    // Return specific error messages for known errors
+    if (
+      err.message.includes("already exists") ||
+      err.message.includes("required") ||
+      err.message.includes("characters long")
+    ) {
+      return res.status(400).json({ message: err.message });
+    }
+
     res.status(500).json({ message: "Error registering user" });
   }
 });
@@ -64,23 +45,19 @@ router.post("/login", async (req, res) => {
 
     // Validate input
     if (!email || !password) {
-      return res.status(400).json({ message: "All fields are required" });
+      return res
+        .status(400)
+        .json({ message: "Email and password are required" });
     }
 
-    // Check if user exists
-    const result = await pool.query(
-      "SELECT id, email, password, role FROM users WHERE email = $1",
-      [email]
-    );
-
-    if (result.rows.length === 0) {
+    // Find user
+    const user = await User.findByEmail(email);
+    if (!user) {
       return res.status(401).json({ message: "Invalid credentials" });
     }
 
-    const user = result.rows[0];
-
     // Verify password
-    const validPassword = await bcrypt.compare(password, user.password);
+    const validPassword = await User.comparePassword(password, user.password);
     if (!validPassword) {
       return res.status(401).json({ message: "Invalid credentials" });
     }
