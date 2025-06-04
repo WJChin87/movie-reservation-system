@@ -11,11 +11,10 @@ class Seat {
         s.id,
         s.row_number,
         s.seat_number,
-        s.premium_factor,
         CASE WHEN r.id IS NULL THEN false ELSE true END as is_occupied
-      FROM seats s
-      JOIN theaters t ON s.theater_id = t.id
-      JOIN showtimes st ON st.theater_id = t.id
+      FROM showtimes st
+      JOIN theaters t ON st.theater_id = t.id
+      JOIN seats s ON s.theater_id = t.id
       LEFT JOIN reservations r ON r.seat_id = s.id 
         AND r.showtime_id = st.id 
         AND r.status = 'active'
@@ -34,9 +33,9 @@ class Seat {
 
     const query = `
       SELECT s.id
-      FROM seats s
-      JOIN theaters t ON s.theater_id = t.id
-      JOIN showtimes st ON st.theater_id = t.id
+      FROM showtimes st
+      JOIN theaters t ON st.theater_id = t.id
+      JOIN seats s ON s.theater_id = t.id
       WHERE st.id = $1
       AND s.id = ANY($2::int[])
       AND NOT EXISTS (

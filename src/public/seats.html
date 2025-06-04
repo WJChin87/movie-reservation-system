@@ -223,7 +223,7 @@
       const API_URL = "http://localhost:3000/api";
       const authToken = localStorage.getItem("token");
       const showtimeId = new URLSearchParams(window.location.search).get(
-        "showtime"
+        "showtimeId"
       );
       let selectedSeats = new Set();
       let showtimeData = null;
@@ -248,6 +248,10 @@
             }),
           ]);
 
+          if (!showtimeResponse.ok || !seatsResponse.ok) {
+            throw new Error("Failed to fetch showtime or seats data");
+          }
+
           showtimeData = await showtimeResponse.json();
           const seatsData = await seatsResponse.json();
           seatPrice = showtimeData.price;
@@ -268,7 +272,11 @@
           // Generate seats grid based on theater type
           generateSeatsGrid(seatsData, showtimeData.theater.type);
         } catch (error) {
-          showMessage("Error loading showtime data", "error");
+          console.error("Error loading showtime data:", error);
+          showMessage(
+            "Error loading showtime data. Please try again later.",
+            "error"
+          );
         }
       }
 

@@ -104,7 +104,19 @@ class Showtime {
           FROM reservations r
           WHERE r.showtime_id = s.id
           AND r.status = 'active'
-        ) as booked_seats
+        ) as booked_seats,
+        jsonb_build_object(
+          'id', m.id,
+          'title', m.title,
+          'duration', m.duration,
+          'poster_url', m.poster_url
+        ) as movie,
+        jsonb_build_object(
+          'id', t.id,
+          'name', t.name,
+          'type', t.type,
+          'capacity', t.capacity
+        ) as theater
       FROM showtimes s
       JOIN movies m ON s.movie_id = m.id
       JOIN theaters t ON s.theater_id = t.id
@@ -158,7 +170,19 @@ class Showtime {
           FROM reservations r
           WHERE r.showtime_id = s.id
           AND r.status = 'active'
-        ) as booked_seats
+        ) as booked_seats,
+        jsonb_build_object(
+          'id', m.id,
+          'title', m.title,
+          'duration', m.duration,
+          'poster_url', m.poster_url
+        ) as movie,
+        jsonb_build_object(
+          'id', t.id,
+          'name', t.name,
+          'type', t.type,
+          'capacity', t.capacity
+        ) as theater
       FROM showtimes s
       JOIN movies m ON s.movie_id = m.id
       JOIN theaters t ON s.theater_id = t.id

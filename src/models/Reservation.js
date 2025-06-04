@@ -46,14 +46,14 @@ class Reservation {
 
       // Create the reservation
       const reservationQuery = `
-        INSERT INTO reservations (user_id, showtime_id, total_amount)
-        VALUES ($1, $2, $3)
+        INSERT INTO reservations (user_id, showtime_id, price, status)
+        VALUES ($1, $2, $3, 'active')
         RETURNING *
       `;
       const reservationResult = await client.query(reservationQuery, [
         userId,
         showtimeId,
-        totalAmount,
+        price,
       ]);
       const reservationId = reservationResult.rows[0].id;
 
@@ -68,7 +68,33 @@ class Reservation {
       `;
       await client.query(seatsQuery);
 
-      return reservationResult.rows[0];
+      // Return complete reservation data
+      const result = await client.query(
+        `SELECT 
+          r.*,
+          m.title as movie_title,
+          m.poster_url as movie_poster_url,
+          t.name as theater_name,
+          t.type as theater_type,
+          s.start_time,
+          s.price as ticket_price,
+          ARRAY_AGG(DISTINCT jsonb_build_object(
+            'id', st.id,
+            'row_number', st.row_number,
+            'seat_number', st.seat_number
+          )) as seats
+        FROM reservations r
+        JOIN showtimes s ON r.showtime_id = s.id
+        JOIN movies m ON s.movie_id = m.id
+        JOIN theaters t ON s.theater_id = t.id
+        JOIN reservation_seats rs ON rs.reservation_id = r.id
+        JOIN seats st ON rs.seat_id = st.id
+        WHERE r.id = $1
+        GROUP BY r.id, m.title, m.poster_url, t.name, t.type, s.start_time, s.price`,
+        [reservationId]
+      );
+
+      return result.rows[0];
     });
   }
 
